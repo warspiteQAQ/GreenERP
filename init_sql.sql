@@ -228,6 +228,14 @@ CREATE TABLE suppliers (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE material_suppliers (
+    id SERIAL PRIMARY KEY,
+    material_id INT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+    supplier_id INT NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (material_id, supplier_id)
+);
+
 CREATE TABLE purchase_orders (
     id SERIAL PRIMARY KEY,
     purchase_code VARCHAR(50) UNIQUE NOT NULL,

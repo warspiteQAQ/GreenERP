@@ -1,5 +1,7 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
 
+from ui.refresh_toast import show_refresh_success
+
 
 class QuotationPage(QWidget):
     def __init__(self):
@@ -15,5 +17,5 @@ class QuotationPage(QWidget):
         self.setLayout(layout)
 
     def refresh_data(self):
-        # Placeholder refresh hook for future quotation data sources.
         self.label.setText("报价管理模块")
+        show_refresh_success(self)

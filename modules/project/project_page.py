@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from database import Database
 from .project_dialog import ProjectDialog
+from ui.refresh_toast import show_refresh_success
 
 
 class ProjectPage(QWidget):
@@ -87,6 +88,7 @@ class ProjectPage(QWidget):
 
     def refresh_data(self):
         self.load_projects()
+        show_refresh_success(self)
 
     def add_project(self):
         dialog = ProjectDialog()

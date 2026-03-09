@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QDate
 from database import Database
+from ui.refresh_toast import show_refresh_success
 
 
 class OrderPickerDialog(QDialog):
@@ -579,11 +580,11 @@ class PurchasePage(QWidget):
     def _to_tree_item(self, row, is_root, has_children):
         poi_id, _, _, material_code, material_name, supplier_id, supplier_name, purchase_qty, unit_price, logistics_company, tracking_no, logistics_status, planned_delivery_date = row
         if is_root and has_children:
-            prefix = "[生产件] "
+            prefix = "🧩 生产件 "
         elif is_root:
-            prefix = "[物料] "
+            prefix = "📦 物料 "
         else:
-            prefix = "[组成] "
+            prefix = "🔹 子料 "
         item = QTreeWidgetItem([
             f"{prefix}{material_code or ''}",
             material_name or "",
@@ -880,3 +881,4 @@ class PurchasePage(QWidget):
 
     def refresh_data(self):
         self.load_purchase_orders()
+        show_refresh_success(self)

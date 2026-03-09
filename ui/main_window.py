@@ -1,8 +1,10 @@
 ﻿from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QPushButton, QLabel, QStackedWidget
+    QPushButton, QLabel, QStackedWidget, QStyle, QMessageBox
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QIcon
+from pathlib import Path
 from modules.quotation.quotation_page import QuotationPage
 from modules.project.project_page import ProjectPage
 from modules.order.order_page import OrderPage
@@ -12,6 +14,7 @@ from modules.production.production_page import ProductionPage
 from modules.warehouse.warehouse_page import WarehousePage
 from modules.finance.finance_page import FinancePage
 from modules.material.material_page import MaterialPage
+from modules.material.supplier_manage_page import SupplierManagePage
 from modules.user.user_manage_page import UserManagePage
 from modules.role.role_manage_page import RoleManagePage
 
@@ -40,6 +43,7 @@ class MainWindow(QMainWindow):
         self.btn_warehouse = QPushButton("仓库管理")
         self.btn_finance = QPushButton("财务管理")
         self.btn_material = QPushButton("物料管理")
+        self.btn_supplier = QPushButton("供应商管理")
         self.btn_user = QPushButton("用户管理")
         self.btn_role = QPushButton("角色管理")
 
@@ -55,6 +59,7 @@ class MainWindow(QMainWindow):
         ]
         self.bottom_buttons = [
             self.btn_material,
+            self.btn_supplier,
             self.btn_user,
             self.btn_role,
         ]
@@ -101,43 +106,40 @@ class MainWindow(QMainWindow):
         self.sidebar_collapsed = False
 
         self.nav_buttons = self.top_buttons + self.bottom_buttons
+        self._apply_nav_icons()
 
         self.stack = QStackedWidget()
-        self.page_quotation = QuotationPage()
-        self.page_project = ProjectPage()
-        self.page_order = OrderPage()
-        self.page_inquiry = InquiryPage()
-        self.page_purchase = PurchasePage()
-        self.page_production = ProductionPage()
-        self.page_warehouse = WarehousePage()
-        self.page_finance = FinancePage()
-        self.page_material = MaterialPage()
-        self.page_user = UserManagePage()
-        self.page_role = RoleManagePage()
+        self._page_factories = [
+            QuotationPage,
+            ProjectPage,
+            OrderPage,
+            InquiryPage,
+            PurchasePage,
+            ProductionPage,
+            WarehousePage,
+            FinancePage,
+            MaterialPage,
+            SupplierManagePage,
+            UserManagePage,
+            RoleManagePage,
+        ]
+        self._pages = [None] * len(self._page_factories)
 
-        self.stack.addWidget(self.page_quotation)
-        self.stack.addWidget(self.page_project)
-        self.stack.addWidget(self.page_order)
-        self.stack.addWidget(self.page_inquiry)
-        self.stack.addWidget(self.page_purchase)
-        self.stack.addWidget(self.page_production)
-        self.stack.addWidget(self.page_warehouse)
-        self.stack.addWidget(self.page_finance)
-        self.stack.addWidget(self.page_material)
-        self.stack.addWidget(self.page_user)
-        self.stack.addWidget(self.page_role)
+        for _ in self._page_factories:
+            self.stack.addWidget(QWidget())
 
-        self.btn_quotation.clicked.connect(lambda: self.stack.setCurrentIndex(0))
-        self.btn_project.clicked.connect(lambda: self.stack.setCurrentIndex(1))
-        self.btn_order.clicked.connect(lambda: self.stack.setCurrentIndex(2))
-        self.btn_inquiry.clicked.connect(lambda: self.stack.setCurrentIndex(3))
-        self.btn_purchase.clicked.connect(lambda: self.stack.setCurrentIndex(4))
-        self.btn_production.clicked.connect(lambda: self.stack.setCurrentIndex(5))
-        self.btn_warehouse.clicked.connect(lambda: self.stack.setCurrentIndex(6))
-        self.btn_finance.clicked.connect(lambda: self.stack.setCurrentIndex(7))
-        self.btn_material.clicked.connect(lambda: self.stack.setCurrentIndex(8))
-        self.btn_user.clicked.connect(lambda: self.stack.setCurrentIndex(9))
-        self.btn_role.clicked.connect(lambda: self.stack.setCurrentIndex(10))
+        self.btn_quotation.clicked.connect(lambda: self.open_page(0))
+        self.btn_project.clicked.connect(lambda: self.open_page(1))
+        self.btn_order.clicked.connect(lambda: self.open_page(2))
+        self.btn_inquiry.clicked.connect(lambda: self.open_page(3))
+        self.btn_purchase.clicked.connect(lambda: self.open_page(4))
+        self.btn_production.clicked.connect(lambda: self.open_page(5))
+        self.btn_warehouse.clicked.connect(lambda: self.open_page(6))
+        self.btn_finance.clicked.connect(lambda: self.open_page(7))
+        self.btn_material.clicked.connect(lambda: self.open_page(8))
+        self.btn_supplier.clicked.connect(lambda: self.open_page(9))
+        self.btn_user.clicked.connect(lambda: self.open_page(10))
+        self.btn_role.clicked.connect(lambda: self.open_page(11))
         self.toggle_btn.clicked.connect(self.toggle_sidebar)
 
         top_bar = QLabel(f"当前登录用户: {self.username}")
@@ -157,6 +159,52 @@ class MainWindow(QMainWindow):
 
         central.setLayout(main_layout)
         self.setCentralWidget(central)
+        self.open_page(0)
+
+    def open_page(self, index):
+        if index < 0 or index >= len(self._page_factories):
+            return
+
+        if self._pages[index] is None:
+            try:
+                page = self._page_factories[index]()
+            except Exception as exc:
+                QMessageBox.warning(self, "提示", f"模块加载失败: {exc}")
+                return
+
+            placeholder = self.stack.widget(index)
+            self.stack.removeWidget(placeholder)
+            placeholder.deleteLater()
+            self.stack.insertWidget(index, page)
+            self._pages[index] = page
+
+        self.stack.setCurrentIndex(index)
+
+    def _apply_nav_icons(self):
+        icon_map = {
+            self.btn_quotation: ("quotation.svg", QStyle.SP_FileDialogDetailedView),
+            self.btn_project: ("project.svg", QStyle.SP_DirOpenIcon),
+            self.btn_order: ("order.svg", QStyle.SP_FileIcon),
+            self.btn_inquiry: ("inquiry.svg", QStyle.SP_FileDialogContentsView),
+            self.btn_purchase: ("purchase.svg", QStyle.SP_DriveHDIcon),
+            self.btn_production: ("production.svg", QStyle.SP_ComputerIcon),
+            self.btn_warehouse: ("warehouse.svg", QStyle.SP_DirIcon),
+            self.btn_finance: ("finance.svg", QStyle.SP_DialogSaveButton),
+            self.btn_material: ("material.svg", QStyle.SP_FileDialogListView),
+            self.btn_supplier: ("supplier.svg", QStyle.SP_DirHomeIcon),
+            self.btn_user: ("user.svg", QStyle.SP_ComputerIcon),
+            self.btn_role: ("role.svg", QStyle.SP_DialogApplyButton),
+        }
+
+        icon_dir = Path(__file__).resolve().parent / "icons" / "modules"
+        for btn, (icon_file, fallback_icon) in icon_map.items():
+            icon_path = icon_dir / icon_file
+            if icon_path.exists():
+                btn.setIcon(QIcon(str(icon_path)))
+            else:
+                btn.setIcon(self.style().standardIcon(fallback_icon))
+            btn.setIconSize(QSize(18, 18))
+            btn.setStyleSheet("text-align:left; padding-left:10px;")
 
     def toggle_sidebar(self):
         self.sidebar_collapsed = not self.sidebar_collapsed

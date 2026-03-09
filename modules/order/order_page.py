@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt
 from database import Database
 from .order_dialog import OrderDialog
 from modules.material.material_dialog import MaterialDialog
+from ui.refresh_toast import show_refresh_success
 
 
 class MaterialPickerDialog(QDialog):
@@ -289,6 +290,7 @@ class OrderPage(QWidget):
         self.load_orders()
         if self.current_order_id:
             self.load_order_details()
+        show_refresh_success(self)
 
     def add_order(self):
         dialog = OrderDialog()

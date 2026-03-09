@@ -1,4 +1,6 @@
-﻿from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
+
+from ui.refresh_toast import show_refresh_success
 
 
 class FinancePage(QWidget):
@@ -16,3 +18,4 @@ class FinancePage(QWidget):
 
     def refresh_data(self):
         self.label.setText("财务管理模块")
+        show_refresh_success(self)

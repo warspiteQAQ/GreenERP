@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from database import Database
+from ui.refresh_toast import show_refresh_success
 
 
 class RoleManagePage(QWidget):
@@ -170,3 +171,4 @@ class RoleManagePage(QWidget):
         self.load_permissions()
         self.load_roles()
         self.on_role_changed()
+        show_refresh_success(self)

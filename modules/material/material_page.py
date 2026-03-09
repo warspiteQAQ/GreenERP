@@ -7,6 +7,7 @@
 from PySide6.QtCore import Qt
 from database import Database
 from .material_dialog import MaterialDialog
+from ui.refresh_toast import show_refresh_success
 
 
 class ComponentPickerDialog(QDialog):
@@ -211,7 +212,7 @@ class MaterialPage(QWidget):
         self.btn_add.clicked.connect(self.add_material)
         self.btn_edit.clicked.connect(self.edit_material)
         self.btn_delete.clicked.connect(self.delete_material)
-        self.btn_refresh.clicked.connect(self.load_materials)
+        self.btn_refresh.clicked.connect(self.refresh_data)
         self.search_input.textChanged.connect(self.load_materials)
         self.table.itemSelectionChanged.connect(self.on_material_selection_changed)
 
@@ -283,6 +284,10 @@ class MaterialPage(QWidget):
             self.component_widget.setEnabled(False)
             self.component_table.setRowCount(0)
             self.drawing_table.setRowCount(0)
+
+    def refresh_data(self):
+        self.load_materials()
+        show_refresh_success(self)
 
     def add_material(self):
         dialog = MaterialDialog()

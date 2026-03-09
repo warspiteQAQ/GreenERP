@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from database import Database
+from ui.refresh_toast import show_refresh_success
 
 
 class OrderPickerDialog(QDialog):
@@ -709,3 +710,4 @@ class ProductionPage(QWidget):
 
     def refresh_data(self):
         self.load_production_orders()
+        show_refresh_success(self)

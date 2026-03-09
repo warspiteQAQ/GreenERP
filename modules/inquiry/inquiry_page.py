@@ -1,5 +1,6 @@
 ﻿
-from datetime import datetime
+from datetime import date, datetime
+import os
 
 from PySide6.QtCore import Qt, QDate, QEvent
 from PySide6.QtGui import QColor, QBrush
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from database import Database
+from ui.refresh_toast import show_refresh_success
 
 
 class OrderPickerDialog(QDialog):
@@ -280,6 +282,12 @@ class InquiryPage(QWidget):
         mid_widget = QWidget()
         mid_layout = QVBoxLayout(mid_widget)
         mid_layout.addWidget(QLabel("物料详情(树)"))
+        mid_action_layout = QHBoxLayout()
+        self.btn_export_rfq = QPushButton("导出询价单")
+        self.btn_import_rfq = QPushButton("导入询价单")
+        mid_action_layout.addWidget(self.btn_export_rfq)
+        mid_action_layout.addWidget(self.btn_import_rfq)
+        mid_layout.addLayout(mid_action_layout)
         self.item_tree = QTreeWidget()
         self.item_tree.setColumnCount(10)
         self.item_tree.setHeaderLabels(
@@ -354,10 +362,12 @@ class InquiryPage(QWidget):
         self.inquiry_table.itemSelectionChanged.connect(self.on_inquiry_changed)
         self.item_tree.itemSelectionChanged.connect(self.on_item_changed)
         self.item_tree.customContextMenuRequested.connect(self.show_item_context_menu)
+        self.btn_export_rfq.clicked.connect(self.export_inquiry_excel)
+        self.btn_import_rfq.clicked.connect(self.import_inquiry_excel)
 
         self.btn_edit_quote.clicked.connect(self.edit_quote)
         self.btn_auto_pick.clicked.connect(self.auto_pick_lowest)
-        self.btn_refresh_quote.clicked.connect(self.load_quotes)
+        self.btn_refresh_quote.clicked.connect(self.refresh_quote_data)
         self.quote_table.customContextMenuRequested.connect(self.show_quote_context_menu)
         self.quote_table.viewport().installEventFilter(self)
         self._set_quote_actions_enabled(False)
@@ -1300,5 +1310,363 @@ class InquiryPage(QWidget):
         self.load_items()
         self.load_inquiries()
 
+    def _ensure_material_supplier_table(self):
+        self.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS material_suppliers (
+                id SERIAL PRIMARY KEY,
+                material_id INT NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+                supplier_id INT NOT NULL REFERENCES suppliers(id) ON DELETE RESTRICT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (material_id, supplier_id)
+            )
+            """
+        )
+
+    def _safe_file_name(self, text):
+        invalid_chars = '<>:"/\\|?*'
+        result = "".join("_" if ch in invalid_chars else ch for ch in (text or "").strip())
+        return result or "supplier"
+
+    def export_inquiry_excel(self):
+        if not self.current_inquiry_id:
+            QMessageBox.warning(self, "提示", "请先选择询价单")
+            return
+        try:
+            from openpyxl import Workbook
+        except Exception:
+            QMessageBox.warning(self, "提示", "请先安装 openpyxl：pip install openpyxl")
+            return
+
+        self._ensure_material_supplier_table()
+        rows = self.db.fetch_all(
+            """
+            SELECT s.id,
+                   s.supplier_name,
+                   ioi.material_id,
+                   m.material_code,
+                   m.material_name,
+                   COALESCE(m.specification, ''),
+                   SUM(ioi.required_qty) AS total_required_qty
+            FROM inquiry_order_items ioi
+            JOIN materials m ON m.id = ioi.material_id
+            JOIN material_suppliers ms ON ms.material_id = ioi.material_id
+            JOIN suppliers s ON s.id = ms.supplier_id
+            WHERE ioi.inquiry_order_id=%s
+              AND ioi.status <> 'inventory'
+            GROUP BY s.id, s.supplier_name, ioi.material_id, m.material_code, m.material_name, m.specification
+            ORDER BY s.id, m.material_code
+            """,
+            (self.current_inquiry_id,),
+        )
+        if not rows:
+            QMessageBox.warning(self, "提示", "当前询价单没有可导出的供应商物料数据，请先维护物料供应商")
+            return
+
+        inquiry_rows = self.db.fetch_all(
+            "SELECT inquiry_code FROM inquiry_orders WHERE id=%s",
+            (self.current_inquiry_id,),
+        )
+        inquiry_code = inquiry_rows[0][0] if inquiry_rows else str(self.current_inquiry_id)
+
+        output_dir = QFileDialog.getExistingDirectory(self, "选择导出目录")
+        if not output_dir:
+            return
+
+        supplier_map = {}
+        for supplier_id, supplier_name, material_id, material_code, material_name, spec, required_qty in rows:
+            supplier_map.setdefault(
+                (supplier_id, supplier_name),
+                [],
+            ).append(
+                (
+                    material_id,
+                    material_code,
+                    material_name,
+                    spec,
+                    required_qty,
+                )
+            )
+
+        exported_count = 0
+        for (_, supplier_name), item_rows in supplier_map.items():
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "询价单"
+            ws.append(
+                [
+                    "物料编码",
+                    "名称",
+                    "技术参数",
+                    "合计数量",
+                    "单价(供应商填写)",
+                    "交货日期(供应商填写)",
+                    "税率%(供应商填写)",
+                    "供应商名称",
+                ]
+            )
+            for material_id, material_code, material_name, spec, required_qty in item_rows:
+                ws.append(
+                    [
+                        material_code or "",
+                        material_name or "",
+                        spec or "",
+                        float(required_qty or 0),
+                        None,
+                        None,
+                        None,
+                        supplier_name or "",
+                    ]
+                )
+            filename = f"{inquiry_code}_{self._safe_file_name(supplier_name)}_询价单.xlsx"
+            file_path = os.path.join(output_dir, filename)
+            wb.save(file_path)
+            exported_count += 1
+
+        QMessageBox.information(self, "提示", f"导出完成，共生成 {exported_count} 个供应商询价Excel")
+
+    def _parse_excel_date(self, value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        txt = str(value).strip()
+        if not txt:
+            return None
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(txt, fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    def import_inquiry_excel(self):
+        if not self.current_inquiry_id:
+            QMessageBox.warning(self, "提示", "请先选择询价单")
+            return
+        try:
+            from openpyxl import load_workbook
+        except Exception:
+            QMessageBox.warning(self, "提示", "请先安装 openpyxl：pip install openpyxl")
+            return
+
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "选择询价Excel",
+            "",
+            "Excel Files (*.xlsx)",
+        )
+        if not files:
+            return
+
+        item_rows = self.db.fetch_all(
+            """
+            SELECT ioi.id,
+                   ioi.material_id,
+                   m.material_code
+            FROM inquiry_order_items ioi
+            JOIN materials m ON m.id = ioi.material_id
+            WHERE ioi.inquiry_order_id=%s
+            """,
+            (self.current_inquiry_id,),
+        )
+        material_item_map = {}
+        for inquiry_item_id, material_id, material_code in item_rows:
+            code = str(material_code or "").strip()
+            if not code:
+                continue
+            material_item_map.setdefault(
+                code,
+                {"material_id": int(material_id), "inquiry_item_ids": []},
+            )
+            material_item_map[code]["inquiry_item_ids"].append(int(inquiry_item_id))
+
+        success_count = 0
+        skipped_count = 0
+        try:
+            with self.db.conn.cursor() as cur:
+                supplier_quote_cache = {}
+                for file_path in files:
+                    wb = load_workbook(file_path, data_only=True)
+                    ws = wb.active
+                    for row in ws.iter_rows(min_row=2, values_only=True):
+                        try:
+                            if not row:
+                                continue
+                            material_code = str((row[0] if len(row) > 0 else "") or "").strip()
+                            price = row[4] if len(row) > 4 else None
+                            delivery_date = self._parse_excel_date(row[5] if len(row) > 5 else None)
+                            tax_rate = row[6] if len(row) > 6 else None
+                            supplier_name = (row[7] if len(row) > 7 else None) or ""
+                            supplier_name = str(supplier_name).strip()
+
+                            if not material_code or not supplier_name:
+                                skipped_count += 1
+                                continue
+                            if price in (None, ""):
+                                skipped_count += 1
+                                continue
+
+                            item_info = material_item_map.get(material_code)
+                            if not item_info:
+                                skipped_count += 1
+                                continue
+                            mapped_material_id = item_info["material_id"]
+                            inquiry_item_ids = item_info["inquiry_item_ids"]
+                            if not inquiry_item_ids:
+                                skipped_count += 1
+                                continue
+
+                            cur.execute(
+                                "SELECT id FROM suppliers WHERE supplier_name=%s ORDER BY id DESC LIMIT 1",
+                                (supplier_name,),
+                            )
+                            supplier_row = cur.fetchone()
+                            if supplier_row:
+                                supplier_id = supplier_row[0]
+                            else:
+                                supplier_code = "SP" + datetime.now().strftime("%Y%m%d%H%M%S%f")[:-3]
+                                cur.execute(
+                                    """
+                                    INSERT INTO suppliers (supplier_code, supplier_name, status)
+                                    VALUES (%s, %s, 'active')
+                                    RETURNING id
+                                    """,
+                                    (supplier_code, supplier_name),
+                                )
+                                supplier_id = cur.fetchone()[0]
+
+                            cache_key = (self.current_inquiry_id, supplier_id)
+                            supplier_quote_id = supplier_quote_cache.get(cache_key)
+                            valid_until = delivery_date.strftime("%Y-%m-%d") if delivery_date else date.today().strftime("%Y-%m-%d")
+                            if not supplier_quote_id:
+                                cur.execute(
+                                    """
+                                    SELECT id
+                                    FROM supplier_quotes
+                                    WHERE inquiry_order_id=%s AND supplier_id=%s AND status='submitted'
+                                    ORDER BY id DESC
+                                    LIMIT 1
+                                    """,
+                                    (self.current_inquiry_id, supplier_id),
+                                )
+                                sq = cur.fetchone()
+                                if sq:
+                                    supplier_quote_id = sq[0]
+                                    cur.execute(
+                                        """
+                                        UPDATE supplier_quotes
+                                        SET valid_until=%s, quote_date=CURRENT_DATE
+                                        WHERE id=%s
+                                        """,
+                                        (valid_until, supplier_quote_id),
+                                    )
+                                else:
+                                    cur.execute(
+                                        """
+                                        INSERT INTO supplier_quotes
+                                        (inquiry_order_id, supplier_id, quote_date, valid_until, status)
+                                        VALUES (%s,%s,CURRENT_DATE,%s,'submitted')
+                                        RETURNING id
+                                        """,
+                                        (self.current_inquiry_id, supplier_id, valid_until),
+                                    )
+                                    supplier_quote_id = cur.fetchone()[0]
+                                supplier_quote_cache[cache_key] = supplier_quote_id
+
+                            lead_time_days = None
+                            if delivery_date:
+                                lead_time_days = max((delivery_date - date.today()).days, 0)
+
+                            for inquiry_item_id in inquiry_item_ids:
+                                cur.execute(
+                                    """
+                                    SELECT sqi.id
+                                    FROM supplier_quote_items sqi
+                                    JOIN supplier_quotes sq ON sqi.supplier_quote_id = sq.id
+                                    WHERE sq.inquiry_order_id=%s AND sq.supplier_id=%s AND sq.status='submitted'
+                                      AND sqi.inquiry_item_id=%s
+                                    ORDER BY sqi.id DESC
+                                    LIMIT 1
+                                    """,
+                                    (self.current_inquiry_id, supplier_id, inquiry_item_id),
+                                )
+                                exist_row = cur.fetchone()
+                                if exist_row:
+                                    cur.execute(
+                                        """
+                                        UPDATE supplier_quote_items
+                                        SET supplier_quote_id=%s,
+                                            quote_unit_price=%s,
+                                            lead_time_days=%s,
+                                            tax_rate=%s
+                                        WHERE id=%s
+                                        """,
+                                        (
+                                            supplier_quote_id,
+                                            float(price),
+                                            lead_time_days,
+                                            float(tax_rate or 0),
+                                            exist_row[0],
+                                        ),
+                                    )
+                                else:
+                                    cur.execute(
+                                        """
+                                        INSERT INTO supplier_quote_items
+                                        (supplier_quote_id, inquiry_item_id, material_id, quote_unit_price, lead_time_days, tax_rate, freight, purchase_link)
+                                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                                        """,
+                                        (
+                                            supplier_quote_id,
+                                            inquiry_item_id,
+                                            mapped_material_id,
+                                            float(price),
+                                            lead_time_days,
+                                            float(tax_rate or 0),
+                                            0,
+                                            "",
+                                        ),
+                                    )
+
+                                cur.execute(
+                                    """
+                                    UPDATE inquiry_order_items
+                                    SET status='quoted', updated_at=NOW()
+                                    WHERE id=%s AND status='pending'
+                                    """,
+                                    (inquiry_item_id,),
+                                )
+                                success_count += 1
+                        except Exception:
+                            skipped_count += 1
+                            continue
+
+                cur.execute(
+                    """
+                    UPDATE inquiry_orders
+                    SET status='quoted', updated_at=NOW()
+                    WHERE id=%s AND status IN ('draft', 'inquiring')
+                    """,
+                    (self.current_inquiry_id,),
+                )
+            self.db.conn.commit()
+        except Exception as exc:
+            self.db.conn.rollback()
+            QMessageBox.warning(self, "提示", f"导入询价单失败: {exc}")
+            return
+
+        self.load_quotes()
+        self.load_items()
+        self.load_inquiries()
+        QMessageBox.information(self, "提示", f"导入完成：成功 {success_count} 条，跳过 {skipped_count} 条")
+
     def refresh_data(self):
         self.load_inquiries()
+        show_refresh_success(self)
+
+    def refresh_quote_data(self):
+        self.load_quotes()
+        show_refresh_success(self)

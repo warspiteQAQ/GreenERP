@@ -12,6 +12,7 @@ from database import Database
 from .inventory_tab import InventoryTab
 from .stock_tab import StockTab
 from .transaction_tab import TransactionTab
+from ui.refresh_toast import show_refresh_success
 
 
 class WarehouseDialog(QDialog):
@@ -280,7 +281,7 @@ class WarehousePage(QWidget):
 
         self.btn_add_wh.clicked.connect(self.add_warehouse)
         self.btn_add_loc.clicked.connect(self.add_location)
-        self.btn_refresh_inv.clicked.connect(self.load_inventory)
+        self.btn_refresh_inv.clicked.connect(self.refresh_inventory_data)
         self.inv_kw.returnPressed.connect(self.load_inventory)
         self.inv_wh.currentIndexChanged.connect(self.load_inventory)
 
@@ -288,13 +289,13 @@ class WarehousePage(QWidget):
         self.btn_add_item.clicked.connect(self.add_stock_item)
         self.btn_del_item.clicked.connect(self.delete_stock_item)
         self.btn_post.clicked.connect(self.post_stock_doc)
-        self.btn_refresh_doc.clicked.connect(self.load_stock_docs)
+        self.btn_refresh_doc.clicked.connect(self.refresh_stock_doc_data)
         self.doc_kw.returnPressed.connect(self.load_stock_docs)
         self.doc_type.currentIndexChanged.connect(self.load_stock_docs)
         self.doc_table.itemSelectionChanged.connect(self.on_doc_selection_changed)
         self.doc_table.customContextMenuRequested.connect(self.show_doc_context_menu)
 
-        self.btn_refresh_tx.clicked.connect(self.load_transactions)
+        self.btn_refresh_tx.clicked.connect(self.refresh_transaction_data)
         self.tx_kw.returnPressed.connect(self.load_transactions)
         self.tx_wh.currentIndexChanged.connect(self.load_transactions)
 
@@ -312,6 +313,19 @@ class WarehousePage(QWidget):
         self.load_inventory()
         self.load_stock_docs()
         self.load_transactions()
+        show_refresh_success(self)
+
+    def refresh_inventory_data(self):
+        self.load_inventory()
+        show_refresh_success(self)
+
+    def refresh_stock_doc_data(self):
+        self.load_stock_docs()
+        show_refresh_success(self)
+
+    def refresh_transaction_data(self):
+        self.load_transactions()
+        show_refresh_success(self)
 
     def load_warehouse_filters(self):
         rows = self.db.fetch_all("SELECT id, warehouse_code, warehouse_name FROM warehouses ORDER BY id")

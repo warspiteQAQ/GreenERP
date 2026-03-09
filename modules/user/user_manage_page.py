@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from database import Database
+from ui.refresh_toast import show_refresh_success
 
 
 class UserEditDialog(QDialog):
@@ -304,4 +305,5 @@ class UserManagePage(QWidget):
     def refresh_data(self):
         self.load_roles()
         self.load_users()
+        show_refresh_success(self)
         self.on_user_changed()
